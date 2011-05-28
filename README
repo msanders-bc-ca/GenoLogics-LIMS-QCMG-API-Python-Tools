@@ -1,0 +1,18 @@
+#------------------------------------------------------------------------------#
+    If you are reading this in QCMGProduction/geneus/api/python/glsapi/trunk/  
+#------------------------------------------------------------------------------#
+This location is for glsapi.py development work. This means:
+a) This is not the place in the repository for scripts.
+b) Don't even write scripts against the code here. It isn't guaranteed to be 
+   stable, complete, or correct. 
+
+To write scripts against a stable version of glsapi.py, check out a directory from 
+https://qcmg-svn.imb.uq.edu.au/svnroot/QCMGProduction/geneus/api/python/scripts/glsapi_version/
+and the appropriate branch version of glsapi.py will be pulled into glsapi 
+directory via svn:externals
+
+
+#------------------------------------------------------------------------------#
+    If you are reading this file elsewhere e.g. glsapi/branches/<branch> or
+    scripts/glsapi_version/<version> then it has been carelessly left
+    here during a branch or tag copy and should be removed. 
