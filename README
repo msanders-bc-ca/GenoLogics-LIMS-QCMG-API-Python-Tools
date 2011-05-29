@@ -1,4 +1,13 @@
-#------------------------------------------------------------------------------#
+# glsapi.py is:
+# a Python module with commonly used functions to access the GenoLogics LIMS Rapid Scripting REST API,
+# the first submission to the GenoLogics-LIMS-QCMG-API-Python-Tools open repository, and
+# a simple tool when starting to work with the GenoLogics LIMS API in Python
+#
+# It was written by Conrad Leonard, PhD at the Queensland Centre for Medical Genomics, Institute for Molecular Bioscience
+# in the University of Queensland and supported by other interested script writers using the GenoLogics LIMS products.
+#
+#-----------------------------------------------------------------------------
+#
     If you are reading this in QCMGProduction/geneus/api/python/glsapi/trunk/  
 #------------------------------------------------------------------------------#
 This location is for glsapi.py development work. This means:
