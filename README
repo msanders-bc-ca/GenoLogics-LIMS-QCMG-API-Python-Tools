@@ -1,11 +1,64 @@
-# glsapi.py is:
-# a Python module with commonly used functions to access the GenoLogics LIMS Rapid Scripting REST API,
-# the first submission to the GenoLogics-LIMS-QCMG-API-Python-Tools open repository, and
-# a simple tool when starting to work with the GenoLogics LIMS API in Python
-#
-# It was written by Conrad Leonard, PhD at the Queensland Centre for Medical Genomics, Institute for Molecular Bioscience
-# in the University of Queensland and supported by other interested script writers using the GenoLogics LIMS products.
-#
+============
+INTRODUCTION
+============
+
+glsapi.py is:
+ a Python module with commonly used functions to access the GenoLogics LIMS Rapid Scripting REST API,
+ the first submission to the GenoLogics-LIMS-QCMG-API-Python-Tools open repository, and
+ a simple tool when starting to work with the GenoLogics LIMS API in Python
+
+ It was written by Conrad Leonard, PhD at the Queensland Centre for Medical Genomics, Institute for Molecular Bioscience
+ in the University of Queensland and supported by other interested script writers using the GenoLogics LIMS products.
+
+==============
+Set up and Use
+==============
+
+Just like any module, have it in the path or project directory, import it and call the functions.
+The primary functions allow you to get, set and create data in the LIMS. Example:
+
+import glsapi as sourceAPI
+
+# set up the api connections strings
+sourceURI='http://' + args.sourceIP + ':8080/api/'
+
+sourceAPI.register_service_details(sourceURI, args.sourceUserName, args.sourcePassword)
+
+print "Connecting to Source: " + sourceURI
+try:
+	result = sourceAPI.get(sourceURI)	
+except:
+	print 'Source server connection failed: check network and credentials.' 
+	sys.exit(1)
+
+# get some data from the api, say the list of defined processes
+sourceProcesses = sourceAPI.get('v1/processtypes')
+
+for processElement in sourceProcesses:
+	print 'Process defined with name: ' + processElement.get("name") 
+
+====================================
+Other Conditions and Considerations
+====================================
+
+You need access to a GenoLogics LIMS server hosted somewhere in the world. Contact your university, institute 
+or www.genologics.com for more information. 
+
+The Python modules in GenoLogics-LIMS-QCMG-API-Python-Tools, such as glsapi.py, is free software: you can redistribute it
+and/or modify it under the terms of the GNU Lesser General Public License as published by the Free Software Foundation.
+It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the COPYING text file, and COPYING.LESSER for details.
+   
+=============
+Collaboration
+=============
+
+We would love to have you add and specialize. The following sections are peer repository (site) specific
+
+===================
+Site Specific QCMG
+===================
+
 #-----------------------------------------------------------------------------
 #
     If you are reading this in QCMGProduction/geneus/api/python/glsapi/trunk/  
