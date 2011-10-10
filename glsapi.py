@@ -20,6 +20,7 @@
     You should have received a copy of the GNU Lesser General Public
     License along with this library.  If not, see <http://www.gnu.org/licenses/>
 '''
+import os.path
 import sys
 import base64
 import urllib2
@@ -44,7 +45,7 @@ except ImportError:
         except ImportError:
           sys.exit("Failed to import ElementTree from any known place")
 
-_VERSION = (1, 0, 2)
+_VERSION = (1, 0, 1)
 _DEBUG = False
 _BASEURI = None
 _AUTHSTR = None
@@ -147,37 +148,6 @@ else:
         from xml.dom.minidom import parseString
         txt = etree.tostring(elem)
         print parseString(txt).toprettyxml() 
-        
-
-def set_elem_text(parent, tag, newvalue, insertbefore=None, **attrib):
-    '''
-    Find element specified by tag & attributes, update text.
-    
-    Returns parent element. If specified element is not found but 
-    insertbefore is specified, create new element with the specified tag, 
-    attributes & text at that location.
-    '''
-    elems = parent.findall(tag)
-    for k, v in attrib.iteritems():
-        copy = elems[:] # So we don't modify list we're iterating over
-        for e in copy:
-            if (not e.get(k)) or (e.get(k) != v):
-                elems.remove(e)
-    if len(elems) == 0:
-        if insertbefore is not None:
-            ibelem = parent.find(insertbefore.tag)
-            if ibelem is None:
-                raise Exception('Insert location %s not found' % 
-                                                            (insertbefore.tag))
-            pos = parent.getchildren().index(ibelem)
-            parent.insert(pos, Element(tag, newvalue, **attrib))
-        else:
-            raise Exception('No match & location for new element not specified')
-    elif len(elems) == 1:
-        elems[0].text = newvalue
-    else:
-        raise Exception('Multiple tags match')
-    return parent
 
 
 def add_ud_elems(parent, udts=None, udfs=None):
@@ -244,8 +214,8 @@ def make_container_elem(nametxt, contype, udts=None, udfs=None):
     return contelem
 
 
-def make_sample_elem(nametxt, project, container, locationtxt, datercv=None, 
-                     udts=None, udfs=None):
+def make_sample_elem(nametxt, project, container, locationtxt, 
+                     datercv=None, udts=None, udfs=None):
     '''
     Return valid Element representation of a sample.
     
@@ -274,11 +244,38 @@ def make_sample_elem(nametxt, project, container, locationtxt, datercv=None,
 #----------------------------------------------
 # These functions are for setting/getting data
 #----------------------------------------------
+def register(servername='qcmg-gltest', file='~/.geneus/gl_credentials.cfg'):
+    '''
+    Register service URI and authentication details from a file.
+    
+    Set _BASEURI and _AUTHSTR using the details from credentials file in user's
+    home directory, or file specified in 'file' argument. The file must have 
+    lines of the form: 
+        <servername>:::<user>:::<password>. 
+    The 'servername' argument must match a <servername> entry in the file.
+    '''
+    global _BASEURI, _AUTHSTR
+    authf = open(os.path.expanduser(file))
+    server, match = None, None
+    for line in authf:
+        try:
+            if not line.startswith('#') and line.strip():
+                (server, user, pwd) = line.strip().split(':::')
+        except:
+            print "Credentials file must contain only lines of the form\
+                   <servername>:::<user>:::<password>"
+        if server == servername:
+            match = (server, user, pwd)
+            break
+    if not match:
+        sys.exit('Credentials for '+ servername + " not found.")
+    _BASEURI = 'http://' + server + ':8080/api/v1'
+    _AUTHSTR = base64.encodestring('%s:%s' % (user, pwd)).replace('\n', '')
+        
+    
 def register_service_details(baseuri, key, password):
     '''
-    Registers service URI and authentication details.
-    
-    Client code must call this (once) before using set/get methods.
+    Explicitly registers service URI and authentication details.
     '''
     global _BASEURI, _AUTHSTR 
     _BASEURI = baseuri
