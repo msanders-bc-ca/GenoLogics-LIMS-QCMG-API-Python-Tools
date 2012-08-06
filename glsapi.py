@@ -5,7 +5,7 @@
     By default it uses lxml.etree, and ElementTree itself if lxml is not 
     available.    
     
-    Copyright 2011 Conrad Leonard http://qcmg.org/
+    Copyright 2011,2012 Conrad Leonard http://qcmg.org/
     
     This library is free software: you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -20,37 +20,40 @@
     You should have received a copy of the GNU Lesser General Public
     License along with this library.  If not, see <http://www.gnu.org/licenses/>
 '''
+import os
 import os.path
 import sys
 import base64
 import urllib2
 import re
+import urlparse
 
 _LXML = True
+_DEBUG = False
 
 try:
     from lxml import etree 
-    print("running with lxml.etree")
+    if _DEBUG: print("running with lxml.etree")
 except ImportError:
     _LXML = False
     try:
         # Standard library ElementTree (Python 2.5+) 
         import xml.etree.ElementTree as etree
-        print("running with ElementTree on Python 2.5+")
+        if _DEBUG: print("running with ElementTree on Python 2.5+")
     except ImportError:
         try:
             # Normal ElementTree install
             import elementtree.ElementTree as etree
-            print("running with ElementTree")
+            if _DEBUG: print("running with ElementTree")
         except ImportError:
           sys.exit("Failed to import ElementTree from any known place")
 
 _VERSION = (1, 0, 1)
-_DEBUG = False
+_APIVERSION = None
 _BASEURI = None
 _AUTHSTR = None
+_GLSFTPAUTH = None
 _NSPATTERN = re.compile(r'(\{)(.+?)(\})')
-
 _NSMAP = {
 'artgr':'http://genologics.com/ri/artifactgroup',
 'art':'http://genologics.com/ri/artifact',
@@ -78,6 +81,10 @@ _NSREV = dict([(v, k) for k, v in _NSMAP.iteritems()])
 if not _LXML:
     # Deal with ns prefixes in ElementTree by registering in _namespace_map
     etree._namespace_map.update(_NSREV)
+
+
+class GlsapiException(Exception):
+    pass
 
 
 def version():
@@ -244,20 +251,28 @@ def make_sample_elem(nametxt, project, container, locationtxt,
 #----------------------------------------------
 # These functions are for setting/getting data
 #----------------------------------------------
-def register(servername='qcmg-gltest', file='~/.geneus/gl_credentials.cfg'):
+def register(servername='qcmg-gltest', authfile='~/.geneus/gl_credentials.cfg'):
     '''
-    Register service URI and authentication details from a file.
-    
-    Set _BASEURI and _AUTHSTR using the details from credentials file in user's
-    home directory, or file specified in 'file' argument. The file must have 
-    lines of the form: 
-        <servername>:::<user>:::<password>. 
+    Register service URI and authentication details from a secure file.
+    The file must have lines of the form: 
+    # comment
+    <servername>:::<user>:::<password>
+
+    The file must have permissions *600 and its directory permissions *700.
     The 'servername' argument must match a <servername> entry in the file.
     '''
     global _BASEURI, _AUTHSTR
-    authf = open(os.path.expanduser(file))
+    authfile = os.path.expanduser(authfile)
+    authdir = os.path.dirname(authfile)
+    dirmode = oct(os.stat(authdir).st_mode)[-3:]
+    if not dirmode.endswith('700'):
+        raise Exception('%s must have permissions = 700' % authdir)
+    fmode = oct(os.stat(authfile).st_mode)[-3:]
+    if not fmode.endswith('600'):
+        raise Exception('%s must have permissions = 600' % authfile)
+    fh = open(authfile)
     server, match = None, None
-    for line in authf:
+    for line in fh:
         try:
             if not line.startswith('#') and line.strip():
                 (server, user, pwd) = line.strip().split(':::')
@@ -269,17 +284,23 @@ def register(servername='qcmg-gltest', file='~/.geneus/gl_credentials.cfg'):
             break
     if not match:
         sys.exit('Credentials for '+ servername + " not found.")
-    _BASEURI = 'http://' + server + ':8080/api/v1'
+    _BASEURI = 'http://' + server + ':8080/api' #here, _BASEURI is versionless
     _AUTHSTR = base64.encodestring('%s:%s' % (user, pwd)).replace('\n', '')
-        
+    set_api_version()
     
-def register_service_details(baseuri, key, password):
+    
+def set_api_version():
     '''
-    Explicitly registers service URI and authentication details.
+    Called at the end of register() to set _APIVERSION, and append major
+    version to _BASEURI
     '''
-    global _BASEURI, _AUTHSTR 
-    _BASEURI = baseuri
-    _AUTHSTR = base64.encodestring('%s:%s' % (key, password)).replace('\n', '')
+    global _APIVERSION, _BASEURI
+    ver = get('') # _BASEURI is versionless at this point
+    version = ver.find('version')
+    major = version.get('major')
+    minor = version.get('minor')
+    _APIVERSION = '.'.join([major, minor])
+    _BASEURI = os.path.join(_BASEURI, major)
     
     
 def glsrequest(uri, method, data=None):
@@ -347,3 +368,33 @@ def add_new(resource, listuri=None):
             raise Exception('Tag "%s" is not in etree format {namespace}local' 
                             % resource.tag)
     return glsrequest(listuri, 'POST', resource)
+
+
+def batch_retrieve(urilist):
+    '''
+    Return list of artifacts for batch of uri's.
+    API version >= v1.r13 only
+    '''
+    if int(_APIVERSION.rsplit('.',1)[1].lstrip('r')) < 13:
+        raise GlsapiException('method not implemented in this version of API')
+    payload = Element('ri:links')
+    for uri in urilist:
+        SubElement(payload, 'link', uri=uri, rel='artifacts')
+    response = glsrequest('artifacts/batch/retrieve', 'POST', payload)
+    return response.findall('.//{%s}artifact' % _NSMAP['art'])
+
+
+def batch_update(artlist):
+    '''
+    Batch update supplied list of artifacts
+    API version >= v1.r13 only
+    '''
+    if int(_APIVERSION.rsplit('.',1)[1].lstrip('r')) < 13:
+        raise GlsapiException('method not implemented in this version of API')
+    payload = Element('art:details')
+    for art in artlist:
+        payload.append(art)
+    response = glsrequest('artifacts/batch/update', 'POST', payload)
+    updated = response.findall('link')
+    for u in updated:
+        print "Updated", u.get('uri')
