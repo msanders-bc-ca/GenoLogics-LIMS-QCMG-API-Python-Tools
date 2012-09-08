@@ -27,6 +27,7 @@ import base64
 import urllib2
 import re
 import urlparse
+from copy import deepcopy
 
 _LXML = True
 _DEBUG = False
@@ -393,7 +394,9 @@ def batch_update(artlist):
         raise GlsapiException('method not implemented in this version of API')
     payload = Element('art:details')
     for art in artlist:
-        payload.append(art)
+        # lxml elements can be in only one tree at a time.
+        # deepcopy here will preserve namespace declarations in artifact tag
+        payload.append(deepcopy(art))
     response = glsrequest('artifacts/batch/update', 'POST', payload)
     updated = response.findall('link')
     for u in updated:
