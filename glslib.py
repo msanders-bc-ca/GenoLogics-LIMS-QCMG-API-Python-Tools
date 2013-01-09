@@ -1,11 +1,18 @@
 '''
-    Python utility functions for Genologics REST API.
+    Python3 utility functions for Genologics REST API.
+    
+    This module is developed & tested in Python 3.2. It is possible that it may
+    work with earlier 3.x but that would be accidental. Additionally,
+    absolutely no guarantee could be offered that future development would 
+    preserve such accidental backwards-compatibility.
 
     This module exposes ElementTree-style interface for xml operations. 
-    By default it uses lxml.etree, and ElementTree itself if lxml is not 
-    available.    
     
-    Copyright 2011,2012 Conrad Leonard http://qcmg.org/
+    This module uses logging and has one module-level Logger named "__name__".
+    Assuming this module is used as part of package "glsapi", this logger may
+    be accessed from elsewhere using logging.getLogger('glsapi.glslib')
+    
+    Copyright 2011,2012,2013 Conrad Leonard http://qcmg.org/
     
     This library is free software: you can redistribute it and/or
     modify it under the terms of the GNU Lesser General Public
@@ -23,33 +30,24 @@
 import os
 import os.path
 import sys
+import logging
 import base64
-import urllib2
+import urllib.request, urllib.error
 import re
-import urlparse
+import xml.etree.ElementTree as etree
 from copy import deepcopy
 
-_LXML = True
-_DEBUG = False
 
-try:
-    from lxml import etree 
-    if _DEBUG: print("running with lxml.etree")
-except ImportError:
-    _LXML = False
-    try:
-        # Standard library ElementTree (Python 2.5+) 
-        import xml.etree.ElementTree as etree
-        if _DEBUG: print("running with ElementTree on Python 2.5+")
-    except ImportError:
-        try:
-            # Normal ElementTree install
-            import elementtree.ElementTree as etree
-            if _DEBUG: print("running with ElementTree")
-        except ImportError:
-          sys.exit("Failed to import ElementTree from any known place")
+class GlslibException(Exception):
+    pass
 
-_VERSION = (1, 0, 1)
+# It is the responsibility of code that imports this module to add handlers
+# e.g. glslib.logger.addHandler(logging.StreamHandler())
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARN)
+
+
+_VERSION = (1, 5, 1)
 _APIVERSION = None
 _BASEURI = None
 _AUTHSTR = None
@@ -78,19 +76,40 @@ _NSMAP = {
 'udf':'http://genologics.com/ri/userdefined',
 'ver':'http://genologics.com/ri/version',
 }
-_NSREV = dict([(v, k) for k, v in _NSMAP.iteritems()])
-if not _LXML:
-    # Deal with ns prefixes in ElementTree by registering in _namespace_map
-    etree._namespace_map.update(_NSREV)
-
-
-class GlsapiException(Exception):
-    pass
+_NSREV = { v:k for k, v in _NSMAP.items() }
+# Deal with ns prefixes in ElementTree by registering in _namespace_map
+etree._namespace_map.update(_NSREV)
+    
+MSGBADCREDENTIALFILEFORMAT = '''
+Credentials file must contain only lines of the form
+<servername>:::<user>:::<password>'''
+MSGBADAUTHFILEPERMS = '''
+'%s must have permissions = 600'''
+MSGBADAUTHDIRPERMS = '''
+%s must have permissions = 700'''
+MSGNOCREDENTIALSFOUND = '''
+Credentials for %s not found.'''
+MSGUNSUPPORTEDMETHOD = '''
+Unsupported method "%s"'''
+MSGBADTAGFORMAT = '''
+'Tag "%s" is not in etree format {namespace}local'''
+MSGBATCHMETHODNOTIMPLEMENTED = '''
+API version detected is < 13. Batch methods not implemented.'''
 
 
 def version():
     return '.'.join(map(str, _VERSION))
 
+
+def set_debug(debug=True):
+    '''
+    Toggle logger level between DEBUG and WARN
+    '''
+    if debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.WARN)
+    
 
 #------------------------------------------------------
 # These functions are for working with elements (nodes)
@@ -105,18 +124,6 @@ def _expand_tag(tag):
         tag = '{%s}%s' % (_NSMAP[tsplit[0]], tsplit[1])
     return tag
 
-
-def _get_nsmap(tag):
-    '''
-    Return nsmap for tag "{namespace}local"
-    '''
-    m = _NSPATTERN.match(tag)
-    if m:
-        ns = m.group(2)
-        return {_NSREV[ns]:ns}
-    else:
-        return None
-    
     
 def Element(tag, _text_=None, **extra):
     '''
@@ -125,8 +132,6 @@ def Element(tag, _text_=None, **extra):
     instead of standard ElementTree-style "{namespace}local"
     '''
     tag = _expand_tag(tag)
-    if _LXML:
-        extra['nsmap'] = _get_nsmap(tag)
     e = etree.Element(tag, **extra)        
     e.text = _text_
     return e
@@ -139,23 +144,17 @@ def SubElement(parent, tag, _text_=None, **extra):
     instead of standard ElementTree-style "{namespace}local"
     '''
     tag = _expand_tag(tag)
-    if _LXML:
-        extra['nsmap'] = _get_nsmap(tag)
     se = etree.SubElement(parent, tag, **extra)
     se.text = _text_
     return se
 
 
-# Pretty-print element tree
-if _LXML:
-    def pprint(elem):
-        print etree.tostring(elem, pretty_print=True)
-else:
-    # A convenient but slow-ish fallback using standard library: 
-    def pprint(elem):
-        from xml.dom.minidom import parseString
-        txt = etree.tostring(elem)
-        print parseString(txt).toprettyxml() 
+# Pretty-print element tree - not native in ElementTree but
+# a convenient (and slow) fallback using standard library: 
+def pprint(elem):
+    from xml.dom.minidom import parseString
+    txt = etree.tostring(elem)
+    print(parseString(txt).toprettyxml()) 
 
 
 def add_ud_elems(parent, udts=None, udfs=None):
@@ -166,16 +165,14 @@ def add_ud_elems(parent, udts=None, udfs=None):
     'udts' is a dictionary of dictionaries: {udtname:{udfname:value}}
     'udfs' is a dictionary mapping udf names to values
     '''
-    if not udts:
-        udts = {}
-    if not udfs:
-        udfs = {}
-    for udtname, typeudfs in udts.iteritems():
+    udts = udts or {}
+    udfs = udfs or {}
+    for udtname, typeudfs in udts.items():
         type_ = SubElement(parent, 'udf:type', name=udtname)
-        for k, v in typeudfs.iteritems():
+        for k, v in typeudfs.items():
             if v: # API doesn't allow udf tags with empty text 
                 SubElement(type_, 'udf:field', v, name=k) 
-    for k, v in udfs.iteritems():
+    for k, v in udfs.items():
         if v: # API doesn't allow udf tags with empty text
             SubElement(parent, 'udf:field', v, name=k)
     return parent
@@ -198,8 +195,7 @@ def make_project_elem(nametxt, researcher, opendate=None, udts=None, udfs=None):
     SubElement(prjelem, 'researcher', 
                uri='%s/researchers/%s'%(_BASEURI, str(researcher)))
     add_ud_elems(prjelem, udts, udfs)
-    if _DEBUG:
-        pprint(prjelem)
+    logger.debug(etree.tostring(prjelem, 'unicode'))
     return prjelem
 
 
@@ -217,8 +213,7 @@ def make_container_elem(nametxt, contype, udts=None, udfs=None):
     SubElement(contelem, 'type', 
                uri='%s/containertypes/%s' % (_BASEURI, str(contype)))
     add_ud_elems(contelem, udts, udfs)
-    if _DEBUG:
-        pprint(contelem)
+    logger.debug(etree.tostring(contelem, 'unicode'))
     return contelem
 
 
@@ -244,8 +239,7 @@ def make_sample_elem(nametxt, project, container, locationtxt,
     locelem = SubElement(smpelem, 'location')
     SubElement(locelem, 'container', limsid=container)
     SubElement(locelem, 'value', locationtxt)
-    if _DEBUG:
-        pprint(smpelem)
+    logger.debug(etree.tostring(smpelem, 'unicode'))
     return smpelem
 
 
@@ -267,10 +261,10 @@ def register(servername='qcmg-gltest', authfile='~/.geneus/gl_credentials.cfg'):
     authdir = os.path.dirname(authfile)
     dirmode = oct(os.stat(authdir).st_mode)[-3:]
     if not dirmode.endswith('700'):
-        raise Exception('%s must have permissions = 700' % authdir)
+        raise GlslibException(MSGBADAUTHDIRPERMS % authdir)
     fmode = oct(os.stat(authfile).st_mode)[-3:]
     if not fmode.endswith('600'):
-        raise Exception('%s must have permissions = 600' % authfile)
+        raise GlslibException(MSGBADAUTHFILEPERMS % authfile)
     fh = open(authfile)
     server, match = None, None
     for line in fh:
@@ -278,15 +272,15 @@ def register(servername='qcmg-gltest', authfile='~/.geneus/gl_credentials.cfg'):
             if not line.startswith('#') and line.strip():
                 (server, user, pwd) = line.strip().split(':::')
         except:
-            print "Credentials file must contain only lines of the form\
-                   <servername>:::<user>:::<password>"
+            logger.error(MSGBADCREDENTIALFILEFORMAT)
         if server == servername:
             match = (server, user, pwd)
             break
     if not match:
-        sys.exit('Credentials for '+ servername + " not found.")
+        raise GlslibException(MSGNOCREDENTIALSFOUND % servername)
     _BASEURI = 'http://' + server + ':8080/api' #here, _BASEURI is versionless
-    _AUTHSTR = base64.encodestring('%s:%s' % (user, pwd)).replace('\n', '')
+    authbytes = base64.b64encode(bytes('%s:%s' % (user, pwd), 'ascii'))
+    _AUTHSTR = str(authbytes, 'ascii')
     set_api_version()
     
     
@@ -312,27 +306,31 @@ def glsrequest(uri, method, data=None):
     'method' in ('GET', 'POST', 'PUT')
     'data' can be a string or Element instance
     '''
-    if method not in ('GET', 'POST', 'PUT'):
-        raise Exception('Unsupported method "%s"' % (method))
+    if method not in {'GET', 'POST', 'PUT'}:
+        raise GlslibException(MSGUNSUPPORTEDMETHOD % method)
     if not uri.startswith(_BASEURI):
         uri = _BASEURI.rstrip('/') + '/' + uri.lstrip('/')
-    request = urllib2.Request(uri)
+    request = urllib.request.Request(uri)
     request.add_header("Authorization", "Basic %s" % _AUTHSTR)
     if etree.iselement(data):
+        # tostring generates bytestring (as required for data)
         data = etree.tostring(data)
         request.add_header('Content-Type', 'application/xml')
     request.add_data(data)
     request.get_method = lambda: method
-    if _DEBUG:
-        print request.get_method(), request.get_full_url(), request.headers, data
+    msg = '%s %s\n%s\n%s' % (request.get_method(), 
+                             request.get_full_url(),
+                             request.headers, 
+                             data.decode('utf-8') if data else '')
+    logger.debug(msg)
     try:
-        r = urllib2.urlopen(request)
+        r = urllib.request.urlopen(request)
         return etree.XML(r.read())
-    except urllib2.HTTPError, httperr:
-        print '\n', httperr.read(), '\n'
+    except urllib.error.HTTPError as httperr:
+        logger.error(httperr.read())
         raise
-    except urllib2.URLError, urlerr:
-        print '\n', request.get_full_url(), '\n'
+    except urllib.error.URLError as urlerr:
+        logger.error(request.get_full_url())
         raise
     
     
@@ -366,38 +364,43 @@ def add_new(resource, listuri=None):
             ns = _NSPATTERN.match(resource.tag).group(2)
             listuri = '/%ss' % (ns.split('/')[-1])
         except AttributeError:
-            raise Exception('Tag "%s" is not in etree format {namespace}local' 
-                            % resource.tag)
+            raise GlslibException(MSGBADTAGFORMAT % resource.tag)
     return glsrequest(listuri, 'POST', resource)
 
 
-def batch_retrieve(urilist):
+def batch_retrieve(uris):
     '''
     Return list of artifacts for batch of uri's.
     API version >= v1.r13 only
+    
+    'uris' is any iterable of uris.
     '''
-    if int(_APIVERSION.rsplit('.',1)[1].lstrip('r')) < 13:
-        raise GlsapiException('method not implemented in this version of API')
+    major, minor = [ int(i.lstrip('vr')) for i in _APIVERSION.split('.') ]
+    if major == 0 or (major == 1 and minor < 13):   
+        raise GlslibException(MSGBATCHMETHODNOTIMPLEMENTED)
     payload = Element('ri:links')
-    for uri in urilist:
+    for uri in uris:
         SubElement(payload, 'link', uri=uri, rel='artifacts')
     response = glsrequest('artifacts/batch/retrieve', 'POST', payload)
     return response.findall('.//{%s}artifact' % _NSMAP['art'])
 
 
-def batch_update(artlist):
+def batch_update(artifacts):
     '''
     Batch update supplied list of artifacts
     API version >= v1.r13 only
+    
+    'artifacts' is any iterable of artifacts.
     '''
-    if int(_APIVERSION.rsplit('.',1)[1].lstrip('r')) < 13:
-        raise GlsapiException('method not implemented in this version of API')
+    major, minor = [ int(i.lstrip('vr')) for i in _APIVERSION.split('.') ]
+    if major == 0 or (major == 1 and minor < 13):        
+        raise GlslibException(MSGBATCHMETHODNOTIMPLEMENTED)
     payload = Element('art:details')
-    for art in artlist:
+    for art in artifacts:
         # lxml elements can be in only one tree at a time.
         # deepcopy here will preserve namespace declarations in artifact tag
         payload.append(deepcopy(art))
     response = glsrequest('artifacts/batch/update', 'POST', payload)
     updated = response.findall('link')
     for u in updated:
-        print "Updated", u.get('uri')
+        logger.info('%s %s' % ("Updated", u.get('uri')))
