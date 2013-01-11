@@ -2,10 +2,11 @@
 INTRODUCTION
 ============
 
-glsapi.py is:
- a Python module with commonly used functions to access the GenoLogics LIMS Rapid Scripting REST API,
- the first submission to the GenoLogics-LIMS-QCMG-API-Python-Tools open repository, and
- a simple tool when starting to work with the GenoLogics LIMS API in Python
+glsapi is:
+ a Python package with commonly used functions and scripting classes to access the GenoLogics 
+ LIMS Rapid Scripting REST API, the first submission to the 
+ GenoLogics-LIMS-QCMG-API-Python-Tools open repository, and a simple tool when starting to 
+ work with the GenoLogics LIMS API in Python
 
  It was written by Conrad Leonard, PhD at the Queensland Centre for Medical Genomics, Institute for Molecular Bioscience
  in the University of Queensland and supported by other interested script writers using the GenoLogics LIMS products.
@@ -14,28 +15,30 @@ glsapi.py is:
 Set up and Use
 ==============
 
-Just like any module, have it in the path or project directory, import it and call the functions.
-The primary functions allow you to get, set and create data in the LIMS. Example:
+Just like any package, have it in the path or project directory, import it and call the functions.
+The primary library functions allow you to get, set and create data in the LIMS. Example, assuming
+you have a credentials file ~/.geneus/gl_credentials.cfg permissions 600 and containg the line:
+exampleserver:::exampleuser:::examplepwd
 
-import glsapi as sourceAPI
+import sys
+from glsapi import glslib as sourceAPI
 
-# set up the api connections strings
-sourceURI='http://' + args.sourceIP + ':8080/api/'
+# set up the api connection
+servername = 'exampleserver'
+sourceAPI.register(servername)
 
-sourceAPI.register_service_details(sourceURI, args.sourceUserName, args.sourcePassword)
-
-print "Connecting to Source: " + sourceURI
+print("Connecting to Source: " + servername)
 try:
-	result = sourceAPI.get(sourceURI)	
+	result = sourceAPI.get('/')	
 except:
-	print 'Source server connection failed: check network and credentials.' 
+	print('Source server connection failed: check network and credentials.')
 	sys.exit(1)
 
 # get some data from the api, say the list of defined processes
-sourceProcesses = sourceAPI.get('v1/processtypes')
+sourceProcesses = sourceAPI.get('processtypes')
 
 for processElement in sourceProcesses:
-	print 'Process defined with name: ' + processElement.get("name") 
+	print('Process defined with name: ' + processElement.get("name")) 
 
 ====================================
 Other Conditions and Considerations
