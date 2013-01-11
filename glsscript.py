@@ -158,9 +158,9 @@ class Script(object):
         stdout, stderr = p.communicate()     
         if stderr:
             if stderrexit:
-                self.exit(stderr, 'CRITICAL', 3, email)
+                self.exit(stderr.decode('ascii'), 'CRITICAL', 3, email)
             else:
-                self.logger.warn(stderr)
+                self.logger.warn(stderr.decode('ascii'))
         return stdout
 
     def email(self, subject, msg, mailto=None, mailfrom=None):
